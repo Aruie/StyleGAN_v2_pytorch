@@ -202,6 +202,7 @@ class Discriminator(nn.Module) :
         self.d_blocks.append(DBlock(8, 512, 512))
 
         # need minimatch std add 
+        self.stddev = MinibatchStdDev(4)
         self.conv1 = nn.Conv2d(512, 512, 3, padding = 1)
         self.conv2 = nn.Conv2d(512, 512, 4)
         self.out = nn.Linear(512, 1)
@@ -213,6 +214,8 @@ class Discriminator(nn.Module) :
         for module in self.d_blocks :
             x = module(x)
             x = F.leaky_relu(x, 0.2, inplace=True)    
+
+        x = self.stddev(x)
 
         x = self.conv1(x)
         x = F.leaky_relu(x, 0.2, inplace=True)
@@ -251,13 +254,35 @@ class DBlock(nn.Module) :
         return x + path_skip
 
 
+class MinibatchStdDev(nn.Module) :
+    def __init__(self, group_size = 4) :
+        super(MinibatchStdDev, self).__init__()
+        self.group = group_size
 
+    def forward(self, x) :
+        b, c, h, w = x.shape
+        # g = self.group if self.group <= b else b
+        
+        # Calc group std & feature mean
+        y = torch.std(x, dim=(0), keepdim=True)
+        y = torch.mean(y, dim=(1), keepdim=True)
+        print(y)
+
+        y = y.expand((b,1,h,w))
+
+
+        return torch.cat((x, y), dim=1)
 
 class Criterion(nn.Module) :
     None
 
-if __name__ == '__main__' : 
 
+
+
+
+
+
+if __name__ == '__main__' : 
     
     mapping = Mappingnet()
     gen = Generator(30)
@@ -265,29 +290,23 @@ if __name__ == '__main__' :
 
     criterion = nn.BCELoss()
     
-
     lr = 2e-3
     
     optim_map = Adam(mapping.parameters(), lr = lr / 100, betas=(0, 0.99))
     optim_gen = Adam(gen.parameters(), lr = lr, betas=(0, 0.99))
     optim_dis = Adam(dis.parameters(), lr = lr, betas=(0, 0.99))
 
-
     latent = torch.randn((2,512), dtype = torch.float32)
-
-
 
     w = mapping(latent)
     x_fake = gen(w)
-    
+
     y_pred = dis(x_fake)
 
     y_true = torch.zeros([2,1])
 
     adv_loss = criterion(y_pred, y_true)
     
-    print(adv_loss)
-
     optim_map.zero_grad()
     optim_gen.zero_grad()
     optim_dis.zero_grad()
@@ -298,5 +317,4 @@ if __name__ == '__main__' :
     optim_gen.step()
     optim_dis.step()
 
-    print(gen.style_blocks[0].conv.weight[0,0,0])
-    
+
